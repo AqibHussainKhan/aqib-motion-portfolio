@@ -188,35 +188,77 @@ console.log("PASS: menu toggle, Escape, and outside click");
 
 const expectedCollections = { portfolios: 6, "web-projects": 10 };
 const collectionIds = {};
+assert.equal(
+  document.querySelectorAll("#playground .floating-project").length,
+  6,
+  "The reference composition has six floating cards",
+);
+assert.ok(
+  document.querySelector("#playground .playground-title h2 br"),
+  "The main headline stays centered on two lines",
+);
+assert.ok(
+  !document.querySelector("#playground .collection-cards"),
+  "The grid gallery is absent",
+);
 for (const [id, count] of Object.entries(expectedCollections)) {
-  const galleryCards = [
-    ...document.querySelectorAll(
-      `#playground [data-collection="${id}"] .collection-card`,
-    ),
-  ];
+  const group = document.querySelector(`#playground [data-collection="${id}"]`);
+  const pager = group.querySelector(".floating-collection-controls");
+  const pageCount = Math.ceil(count / 3);
   const indexRows = [
     ...document.querySelectorAll(
       `#project-index [data-collection="${id}"] .project-row`,
     ),
   ];
   assert.equal(
-    galleryCards.length,
-    count,
-    `${id} gallery contains all its projects`,
-  );
-  assert.equal(
     indexRows.length,
     count,
     `${id} index contains all its projects`,
   );
-  collectionIds[id] = new Set(
-    galleryCards.map((card) => card.dataset.projectId),
+  assert.equal(Number(pager.dataset.pageCount), pageCount);
+  const seen = new Set();
+  const allowedSlots = id === "portfolios" ? [1, 3, 5] : [2, 4, 6];
+  for (let page = 0; page < pageCount; page++) {
+    assert.equal(Number(pager.dataset.page), page + 1);
+    const cards = [...group.querySelectorAll(".floating-project")];
+    assert.equal(
+      cards.length,
+      3,
+      "Each side keeps three visible floating cards",
+    );
+    for (const [slot, card] of cards.entries()) {
+      seen.add(card.dataset.projectId);
+      assert.ok(
+        card.classList.contains(`floating-project-${allowedSlots[slot]}`),
+        "Category stays on its side of the reference layout",
+      );
+    }
+    await click(pager.querySelector('[data-direction="next"]'));
+  }
+  assert.equal(
+    Number(pager.dataset.page),
+    1,
+    "Gallery wraps to the initial view",
   );
+  assert.equal(
+    seen.size,
+    count,
+    "Every project is reachable through the gallery controls",
+  );
+  collectionIds[id] = seen;
   assert.deepEqual(
     new Set(indexRows.map((row) => row.dataset.projectId)),
-    collectionIds[id],
+    seen,
     "Gallery and index grouping agree",
   );
+  await click(pager.querySelector('[data-direction="previous"]'));
+  assert.equal(
+    Number(pager.dataset.page),
+    pageCount,
+    "Previous wraps to the final page",
+  );
+  await click(pager.querySelector('[data-direction="next"]'));
+  assert.equal(Number(pager.dataset.page), 1);
 }
 assert.equal(
   [...collectionIds.portfolios].filter((id) =>
@@ -232,7 +274,7 @@ assert.ok(document.querySelector("#work .project-flagship-label"));
 assert.ok(!document.body.textContent.includes("Cards Portal"));
 assert.ok(!document.body.textContent.includes("Time, counted."));
 console.log(
-  "PASS: 6 portfolios and 10 other projects stay separate in both collections; HMS is featured first",
+  "PASS: reference floating composition, independent paging, 6/10 grouping, and first-featured HMS",
 );
 
 assert.equal(document.querySelectorAll(".project-row").length, 16);
@@ -308,17 +350,32 @@ const expectedLiveLinks = new Set(
   ].map((slug) => `https://aqibhussainkhan.github.io/${slug}/`),
 );
 const observedLiveLinks = new Set();
-for (const card of document.querySelectorAll("#playground .collection-card")) {
-  await click(card);
-  const dialog = document.querySelector("dialog[open]");
-  assert.ok(dialog, `Details open for ${card.dataset.projectId}`);
-  observedLiveLinks.add(dialog.querySelector(".dialog-actions a").href);
-  await click(dialog.querySelector('[aria-label="Close project details"]'));
+for (const [id, count] of Object.entries(expectedCollections)) {
+  const group = document.querySelector(`#playground [data-collection="${id}"]`);
+  const other = document.querySelector(
+    `#playground [data-collection="${id === "portfolios" ? "web-projects" : "portfolios"}"] .floating-collection-controls`,
+  );
+  const otherPage = other.dataset.page;
+  for (let page = 0; page < Math.ceil(count / 3); page++) {
+    for (const card of group.querySelectorAll(".floating-project")) {
+      await click(card);
+      const dialog = document.querySelector("dialog[open]");
+      assert.ok(dialog, `Details open for ${card.dataset.projectId}`);
+      observedLiveLinks.add(dialog.querySelector(".dialog-actions a").href);
+      await click(dialog.querySelector('[aria-label="Close project details"]'));
+    }
+    await click(group.querySelector('[data-direction="next"]'));
+    assert.equal(
+      other.dataset.page,
+      otherPage,
+      "Moving one gallery leaves the other gallery unchanged",
+    );
+  }
 }
 assert.deepEqual(
   observedLiveLinks,
   expectedLiveLinks,
-  "Every retained and requested live link is present exactly once",
+  "Every retained and requested live link is reachable in the floating gallery",
 );
 console.log(
   "PASS: all 16 gallery cards open the correct live-project links, preserving case and the HMS trailing dot",
